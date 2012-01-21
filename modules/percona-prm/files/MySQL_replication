@@ -1,0 +1,1199 @@
+#!/bin/bash
+
+#############################################################################
+#
+#      OCF Resource Agent compliant MySQL replication resource script.
+#
+# Copyright (c) 2011 Yves Trudeau, Baron Schwartz, Ricardo Santos
+#                    All Rights Reserved.
+#
+# This program is free software; you can redistribute it and/or modify
+# it under the terms of version 2 of the GNU General Public License as
+# published by the Free Software Foundation.
+#
+# This program is distributed in the hope that it would be useful, but
+# WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, write the Free Software Foundation,
+# Inc., 59 Temple Place - Suite 330, Boston MA 02111-1307, USA.
+#
+# This script is responsible for managing MySQL replication and virtual IP
+# addresses within the Pacemaker framework.  It manages simple master/slave
+# replication only, and handles only a limited set of circumstances.  See the
+# documentation at TODO for full details.
+#
+# This script is written in a style that tries to make it reasonably testable by
+# sourcing the script from a test harness, to provide a library of functions.
+# We try to avoid global variables and make functions accept input and return
+# output as much as convenient.  We also use ":" comments to enable tracing when
+# the DEBUG_LOG parameter is set.
+#
+#############################################################################
+# Initialization:
+
+: ${OCF_FUNCTIONS_DIR}=${OCF_ROOT}/resource.d/heartbeat
+. ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
+
+#############################################################################
+# Returns the meta-data.
+#############################################################################
+meta_data() {
+	cat <<-END
+	<?xml version="1.0"?>
+	<!DOCTYPE resource-agent SYSTEM "ra-api-1.dtd">
+	<resource-agent name="mysql_replication">
+	<version>1.3</version>
+
+	<longdesc lang="en">
+	This resource agent manages a MySQL replication resource as a 
+	master/slave resource. MySQL itself is not managed by Pacmaker,
+	only replication.
+	</longdesc>
+
+	<shortdesc lang="en">Manages MySQL replication as a Master/Slave resource</shortdesc>
+
+	<parameters>
+	<parameter name="node_prefix" unique="1" required="0">
+	<longdesc lang="en">
+	Node name prefix to help locate the MySQL nodes in the CIB configuration
+	</longdesc>
+	<shortdesc lang="en">MySQL node name prefix</shortdesc>
+	<content type="string" default="mysql_node_"/>
+	</parameter>
+
+	<parameter name="reader_vip_prefix" required="0">
+	<longdesc lang="en">
+	Resource name prefix to help locate the reader vips in the CIB configuration
+	</longdesc>
+	<shortdesc lang="en">Reader vip resource name prefix</shortdesc>
+	<content type="string" default="reader_vip_"/>
+	</parameter>
+
+	<parameter name="p_replication_resource_name" required="0">
+	<longdesc lang="en">
+	Primitive resource name to help locate the replication resource in the CIB configuration
+	</longdesc>
+	<shortdesc lang="en">Primitive replication resource name</shortdesc>
+	<content type="string" default="p_mysql_replication"/>
+	</parameter>
+
+	<parameter name="ms_replication_resource_name" required="0">
+	<longdesc lang="en">
+	Master-slave type resource name to help locate the replication resource in the CIB configuration
+	</longdesc>
+	<shortdesc lang="en">MS Replication resource name</shortdesc>
+	<content type="string" default="ms_mysql_replication"/>
+	</parameter>
+
+   <parameter name="p_replication_resource_name" required="0">
+   <longdesc lang="en">
+   Primitive type resource name to help locate the replication resource in the CIB configuration
+   </longdesc>
+   <shortdesc lang="en">Primitive replication resource name</shortdesc>
+   <content type="string" default="ms_mysql_replication"/>
+   </parameter>
+
+	<parameter name="master_host" required="0">
+	<longdesc lang="en">
+	Current master server.  The value is defined in the CIB by the script itself
+	so no need to set it.
+	</longdesc>
+	<shortdesc lang="en">Current master host</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="master_log_file" required="0">
+	<longdesc lang="en">
+	Current master log file.  The value is defined in the CIB by the script itself
+	so no need to set it.
+	</longdesc>
+	<shortdesc lang="en">Current master log file</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="master_log_pos" required="0">
+	<longdesc lang="en">
+	Current master log position.  The value is defined in the CIB by the script itself
+	so no need to set it.
+	</longdesc>
+	<shortdesc lang="en">Current master log pos</shortdesc>
+	<content type="integer" default=""/>
+	</parameter>
+
+	<parameter name="super_db_user" required="1">
+	<longdesc lang="en">
+	DB user with super privilege to manage replication
+	</longdesc>
+	<shortdesc lang="en">DB user with super priv</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="super_db_password" required="1">
+	<longdesc lang="en">
+	DB password of the user with super privilege
+	</longdesc>
+	<shortdesc lang="en">DB password of super_db_user</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="repl_db_user" required="1">
+	<longdesc lang="en">
+	DB user for replication, used for change master to command
+	</longdesc>
+	<shortdesc lang="en">DB user for replication</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="repl_db_password" required="1">
+	<longdesc lang="en">
+	DB password of the replication
+	</longdesc>
+	<shortdesc lang="en">DB password of repl_db_user</shortdesc>
+	<content type="string" default=""/>
+	</parameter>
+
+	<parameter name="allowed_sbm" required="0">
+	<longdesc lang="en">
+	Allowed number of seconds behind master before reader vip is removed
+	</longdesc>
+	<shortdesc lang="en">Allowed SBM</shortdesc>
+	<content type="integer" default="10"/>
+	</parameter>
+
+	<parameter name="pidfile" required="0">
+	<longdesc lang="en">
+	File containing the process id of the script
+	</longdesc>
+	<shortdesc lang="en">Pid file</shortdesc>
+	<content type="string" default="/var/run/mysql_replication.pid"/>
+	</parameter>
+
+	<parameter name="state_file" unique="1" required="0">
+	<longdesc lang="en">
+	Location to store the resource state in
+	</longdesc>
+	<shortdesc lang="en">State file</shortdesc>
+	<content type="string" default="${HA_VARRUN}/MySQL_replication-${OCF_RESOURCE_INSTANCE}.state" />
+	</parameter>
+
+	<parameter name="recover_file" unique="1" required="0">
+	<longdesc lang="en">
+	Location to store the recovery state file
+	</longdesc>
+	<shortdesc lang="en">Recovery file</shortdesc>
+	<content type="string" default="${HA_VARRUN}/MySQL_replication-${OCF_RESOURCE_INSTANCE}.recovery" />
+	</parameter>
+
+   <parameter name="heartbeat_table" unique="1" required="0">
+   <longdesc lang="en">
+   Table for advance replication delay
+   </longdesc>
+   <shortdesc lang="en">Replication delay table</shortdesc>
+   <content type="string" default="ocf.heartbeat" />
+   </parameter>
+
+   <parameter name="promoted_coordinates" unique="1" required="0">
+   <longdesc lang="en">
+   Coordinates to reach for new master
+   </longdesc>
+   <shortdesc lang="en">Coordinates for new master</shortdesc>
+   <content type="string" default="ocf.heartbeat" />
+   </parameter>
+
+	<parameter name="recover_seconds" unique="1" required="0">
+	<longdesc lang="en">
+	Number of seconds to wait to reenable a slave that was slagging above allowed_sbm
+	</longdesc>
+	<shortdesc lang="en">Recovery seconds</shortdesc>
+	<content type="integer" default="15" />
+	</parameter>
+
+	</parameters>
+
+	<actions>
+	<action name="start"   timeout="90" />
+	<action name="promote" timeout="90" />
+	<action name="demote"  timeout="90" />
+	<action name="notify"  timeout="90" />
+	<action name="stop"    timeout="90" />
+	<action name="monitor" depth="0"  timeout="20" interval="1" role="Slave" />
+	<action name="monitor" depth="0"  timeout="20" interval="1" role="Master" />
+	<action name="meta-data"  timeout="5" />
+	<action name="validate-all"  timeout="30" />
+	</actions>
+	</resource-agent>
+	END
+}
+
+#############################################################################
+# Prints a usage message.
+#############################################################################
+MySQL_replication_usage() {
+   cat <<-END
+	usage: $0 {start|stop|monitor|validate-all|promote|demote|notify|meta-data}
+	END
+}
+
+#############################################################################
+# Checks whether we have the required version of something.  The syntax is
+# "version_at_least version_found version_needed"
+# Parameters:
+#  $1 is a version number such as "3.0.1"
+#  $2 is the desired version, also in N.N.N format.
+#############################################################################
+version_at_least() {
+   # We zero-pad the version numbers for easy comparison.  We will split them
+   # apart with the "." character via the -F option.
+   echo "$1.$2" | awk -F. '
+      {
+         given  = sprintf("%03d.%03d.%03d", $1, $2, $3);
+         needed = sprintf("%03d.%03d.%03d", $4, $5, $6);
+         if ( given < needed ) {
+            exit 1;
+         }
+         exit 0;
+      }'
+}
+
+#############################################################################
+# Executes a MySQL command.
+#############################################################################
+do_mysql() {
+   do_cmd $MYSQL -u "${OCF_RESKEY_super_db_user}" "-p${OCF_RESKEY_super_db_password}" -s -e "$@" 2>"${WORKDIR}/mysql-stderr"
+}
+
+#############################################################################
+# Returns the error number of the most recent MySQL command.
+#############################################################################
+get_mysql_errno() {
+   awk '/ERROR/{print $2; exit;}' "${WORKDIR}/mysql-stderr"
+}
+
+#############################################################################
+# Run a command, return its exit code, capture any output, and log everything if
+# appropriate.
+#############################################################################
+do_cmd() {
+   local output result loglevel
+   output=$( "$@" )
+   result=$?
+
+   if [ "$result" = "0" ] ; then
+      loglevel="debug"
+   else
+      loglevel="err"
+   fi
+
+   ocf_log "$loglevel" "$0: Called $@"
+   ocf_log "$loglevel" "$0: Exit code $result; output: $output"
+
+   echo "$output"
+   return $result
+
+}
+
+#############################################################################
+# Determines what IP address is attached to the current host.  The output of the
+# crm_attribute command looks like this:
+# scope=nodes  name=IP value=10.2.2.161
+#############################################################################
+get_local_ip() {
+   do_cmd crm_attribute --type nodes --node-uname $(uname -n) --attr-name IP -G \
+      | awk -F= '/name=IP/{print $NF}'
+}
+
+#############################################################################
+# Gets a list of all the nodes.
+#############################################################################
+get_node_list() {
+   grep "([a-f0-9-]*):" "${WORKDIR}/node-list" | cut -d'(' -f1
+}
+
+#############################################################################
+# Get current location score
+# Arguments:
+#  $1 the id of the location rule from which to get the score
+#  TODO: make this more resistant, would break if location rule is on
+#        more than one line.
+#############################################################################
+get_current_location_score() {
+   grep "$1" "${WORKDIR}/current-config" | cut -d' ' -f 4 | cut -d':' -f1
+}
+
+#############################################################################
+# Set the specified resource's score on the specified node to the given value.
+# The format of the entries are ResourceName_loc_HostName.
+# Arguments:
+#  $1 The resource name
+#  $2 The node name
+#  $3 The score to set it to
+#############################################################################
+set_resource_score() {
+   local xml
+   
+   if [ "$(get_current_location_score "${1}_loc_${2}")" -ne "${3}" ]; then
+      xml="<rsc_location id=\"${1}_loc_${2}\" node=\"${2}\" rsc=\"${1}\" score=\"${3}\"/>"
+      do_cmd ${HA_SBIN_DIR}/cibadmin -s --modify --xml-text "${xml}"
+   fi
+}
+
+#############################################################################
+# Set the master's score.  Actual
+# score updates will get logged by attrd anyway.
+# Arguments:
+#  $1 The score
+#############################################################################
+set_master_score() {
+   
+   Previous_score=$(get_master_score)
+
+   if [ "$Previous_score" != "(null)" ]; then
+      if [ "$Previous_score" -ne "$1" ]; then
+         do_cmd ${HA_SBIN_DIR}/crm_master -l reboot -v $1 -r ${OCF_RESOURCE_INSTANCE}
+      fi
+   else
+      do_cmd ${HA_SBIN_DIR}/crm_master -l reboot -v $1 -r ${OCF_RESOURCE_INSTANCE}
+   fi
+}
+
+#############################################################################
+# Get the master's score. 
+# Arguments:
+#  $1 The score
+#############################################################################
+get_master_score() {
+   do_cmd ${HA_SBIN_DIR}/crm_master -l reboot -G -r ${OCF_RESOURCE_INSTANCE} | /usr/bin/cut -d'=' -f4
+}
+
+#############################################################################
+# Delete the master's score.  Actual
+# score updates will get logged by attrd anyway.
+#############################################################################
+remove_master_score() {
+   do_cmd ${HA_SBIN_DIR}/crm_master -l reboot -D -r ${OCF_RESOURCE_INSTANCE}
+}
+
+#############################################################################
+# Sets a resource parameter in the CIB.
+# Arguments:
+#  $1 The name of the resource to set
+#  $2 The value to set
+#############################################################################
+set_crm_resource_param() {
+   do_cmd ${HA_SBIN_DIR}/crm resource param ${OCF_RESKEY_p_replication_resource_name} set "$1" "$2"
+}
+
+#############################################################################
+# Gets a resource parameter in the CIB.
+# Arguments:
+#  $1 The name of the parameter to get
+#  return the value
+#############################################################################
+get_crm_resource_param() {
+   do_cmd ${HA_SBIN_DIR}/crm resource param ${OCF_RESKEY_p_replication_resource_name} show "$1"
+}
+
+#############################################################################
+# Set the reader vip score for this host.  Ideally, we should proceed by a
+# group but we could not get that working correctly.
+# Arguments:
+#  $1 The score
+#############################################################################
+set_reader_vips_score() {
+   # We operate only on reader_vip resources, based on the reader_vip_prefix.
+   for res in $(get_resource_list | grep "${OCF_RESKEY_reader_vip_prefix}"); do
+      # Update location rules for the CIB.
+      set_resource_score "${res}" "$(uname -n)" "$1"
+   done
+}
+
+##########################################################################
+# Stores data for GLOBAL VARIABLES from MySQL
+##########################################################################
+update_data_mysql_vars() {
+   do_mysql "SHOW GLOBAL VARIABLES" > "${WORKDIR}/mysql-vars"
+}
+
+##########################################################################
+# Stores data for MASTER STATUS from MySQL
+##########################################################################
+update_data_master_status() {
+   do_mysql "SHOW MASTER STATUS\G" > "${WORKDIR}/master-status"
+}
+
+##########################################################################
+# Stores data for PROCESS LIST from MySQL
+##########################################################################
+update_data_process_list() {
+   do_mysql "SHOW PROCESSLIST" > "${WORKDIR}/processlist"
+}
+
+##########################################################################
+# Stores data for SLAVE STATUS from MySQL
+##########################################################################
+update_data_slave_status() {
+   do_mysql "SHOW SLAVE STATUS\G" > "${WORKDIR}/slave-status"
+}
+
+##########################################################################
+# Stores data from CRM
+##########################################################################
+update_data_crm() {
+   do_cmd ${HA_SBIN_DIR}/crm node list     > "${WORKDIR}/node-list"
+   do_cmd ${HA_SBIN_DIR}/crm resource list > "${WORKDIR}/resource-list"
+   do_cmd ${HA_SBIN_DIR}/crm configure show > "${WORKDIR}/current-config"
+}
+
+#############################################################################
+# Gets a list of all the resources.
+#############################################################################
+get_resource_list() {
+   awk '/::/{print $1}' "${WORKDIR}/resource-list"
+}
+
+#############################################################################
+# Returns MySQL connection IDs of all threads except for system threads that are
+# used for replication, event scheduler, etc.
+#############################################################################
+get_user_threads() {
+   awk '$0 !~ /Binlog Dump|system user|event_scheduler|SHOW PROCESSLIST/ && $0 ~ /^[0-9]/ {print $1}' "${WORKDIR}/processlist"
+}
+
+#############################################################################
+# Gets a MySQL variable's value.  The variables are stored in a file.
+# Arguments:
+#  $1 the variable name
+#############################################################################
+get_mysql_variable() {
+   awk -v var="$1" '$1 == var{print $2}' "${WORKDIR}/mysql-vars"
+}
+
+#############################################################################
+# Returns the specified value from the stored copy of SHOW SLAVE STATUS.
+# Arguments:
+#  $1 The value to get.
+#  $2 The file containing SHOW SLAVE STATUS.
+#############################################################################
+get_slave_status() {
+   awk -v var="$1" '$1 == var ":" {print substr($0, index($0, ":") + 2)}' "${WORKDIR}/slave-status"
+}
+
+#############################################################################
+# Returns replication delay from the heartbeat table.
+#############################################################################
+get_replication_delay() {
+   local sql
+   sql="SELECT UNIX_TIMESTAMP() - UNIX_TIMESTAMP(ts) AS delay "
+   sql="${sql} FROM ${OCF_RESKEY_heartbeat_table} WHERE id=1"
+   do_mysql "$sql"
+}
+
+#############################################################################
+# Updates the heartbeat table on the master.
+#############################################################################
+update_heartbeat_table() {
+   do_mysql "REPLACE INTO ${OCF_RESKEY_heartbeat_table}(id, ts) VALUES(1, NOW())"
+}
+
+#############################################################################
+# Records the Unix timestamp of the point in time when the replication delay
+# timeout will have expired.  Arguments:
+#  $1 the current timestamp
+#  $2 the number of seconds in the timeout
+#  $3 the file to save the result in
+#############################################################################
+set_replication_delay_timeout() {
+   echo $(($1 + $2)) > "$3"
+}
+
+#############################################################################
+# Returns true if the current Unix timestamp is past the timeout period.
+# Removes the file that records the end of the timeout.  Arguments:
+#  $1 The current timestamp
+#  $2 The file containing the timestamp of the end of the timeout
+#############################################################################
+replication_delay_timeout_expired() {
+   if [ -e "$2" ]; then
+      if [ "$(cat "$2")" -le "$1" ]; then
+         rm -f "$2"
+         return 0
+      fi
+   fi
+   return 1
+}
+
+#############################################################################
+# Returns the specified value from the stored copy of SHOW MASTER STATUS.
+# Arguments:
+#  $1 The value to get.
+#############################################################################
+get_master_status() {
+   awk -v var="$1" '$1 == var ":" {print substr($0, index($0, ":") + 2)}' "${WORKDIR}/master-status"
+}
+
+#############################################################################
+# Returns the IP/host from which this server is currently replicating.
+# Arguments:
+#############################################################################
+get_current_master() {
+   get_slave_status Master_Host
+}
+
+#############################################################################
+# Returns the coordinates to which we've executed relative to the master, in the
+# format host:file:position.
+#############################################################################
+get_exec_pos_on_master() {
+   local result
+
+   result="$(get_slave_status Master_Host)"
+   result="${result}:$(get_slave_status Relay_Master_Log_File)"
+   result="${result}:$(get_slave_status Exec_Master_Log_Pos)"
+   : Current exec master position: $result
+   echo "$result"
+}
+
+#############################################################################
+# Returns the coordinates to which we've fetched binlogs from the master, in the
+# format host:file:position.
+#############################################################################
+get_io_pos_on_master() {
+   local result
+
+   result="$(get_slave_status Master_Host)"
+   result="${result}:$(get_slave_status Master_Log_File)"
+   result="${result}:$(get_slave_status Read_Master_Log_Pos)"
+   : Current IO master position: $result
+   echo "$result"
+}
+
+#############################################################################
+# Waits in a loop until the current node is finished executing all of the relay
+# logs it has fetched.
+#############################################################################
+finish_relay_logs() {
+   local exec_pos read_pos
+   exec_pos=$(get_exec_pos_on_master)
+   read_pos=$(get_io_pos_on_master)
+
+   until [ "${exec_pos}" = "${read_pos}" ]; do
+      sleep 1
+      update_data_slave_status
+      exec_pos=$(get_exec_pos_on_master)
+      read_pos=$(get_io_pos_on_master)
+      : We are not finished with relay logs: $exec_pos $read_pos
+   done
+}
+
+#############################################################################
+# Determines whether we are at the same position in replication as the current
+# master was when it promoted itself and stored master coordinates into the CIB.
+#############################################################################
+at_new_master_pos() {
+   local exec_pos, last_master
+
+   exec_pos=$(get_exec_pos_on_master)
+   : current pos = $exec_pos, desired = ${OCF_RESKEY_promoted_coordinates}
+
+   # Check if slave is configured, if it not, try to configure it based on OCF data
+   if [ -z "${exec_pos}" ]; then
+      : Slave is not configured
+      return 0
+   fi
+
+   if [ "${OCF_RESKEY_promoted_coordinates}" = "::" ]; then
+      : promoted_coordinates is unset
+      return 0
+   fi
+
+   if [ "${OCF_RESKEY_promoted_coordinates}" = "${exec_pos}" ]; then
+      : Slave is at last master coordinates
+      return 0
+   fi
+
+   last_master=`echo ${OCF_RESKEY_promoted_coordinates} | cut -d':' -f1`
+   if [ "${last_master}" = "${THIS_IP}" ]; then
+      : This host was the previous master, we can ignore promoted coordinates
+      return 0
+   fi
+
+   return 1
+}
+
+#############################################################################
+# Returns true if the slave is running.
+#############################################################################
+replication_is_running() {
+   local io_running sql_running
+
+   io_running="$(get_slave_status Slave_IO_Running)"
+   sql_running="$(get_slave_status Slave_SQL_Running)"
+
+   if [ "${io_running}" = "Yes" -a "${sql_running}" = "Yes" ]; then
+      return 0
+   fi
+   return 1
+}
+
+#############################################################################
+# Execute a CHANGE MASTER TO to change to the new master's coordinates, as
+# defined in the CIB.  Assumptions: finish_relay_logs is true, at_new_master_pos
+# is true, and the slave is stopped.
+# TODO: don't we need a MASTER_PORT option?
+#############################################################################
+change_to_new_master() {
+   local cmd host_port_serverid
+   cmd="CHANGE MASTER TO MASTER_HOST='${OCF_RESKEY_master_host}'"
+   cmd="${cmd}, MASTER_LOG_FILE='${OCF_RESKEY_master_log_file}'"
+
+   cmd="${cmd}, MASTER_LOG_POS=${OCF_RESKEY_master_log_pos}"
+   cmd="${cmd}, MASTER_USER='${OCF_RESKEY_repl_db_user}'"
+   cmd="${cmd}, MASTER_PASSWORD='${OCF_RESKEY_repl_db_password}'"
+   do_mysql "${cmd}"
+
+   # Paranoia: connect to that server, and log where we connected to.
+   #host_port_serverid=$(do_mysql "SELECT CONCAT(@@hostname, ':', @@port, ',', @@server_id)" \
+   #   -h "${OCF_RESKEY_master_host}")
+   #: $host_port_serverid
+   #ocf_log debug "$0 found $host_port_serverid at ${OCF_RESKEY_master_host}"
+}
+
+#############################################################################
+# Start the resource.  Pacemaker calls this code at initialization time before
+# it promotes any specific node to be a master.  This script asks Pacemaker to
+# call this code on other nodes during promotion.
+# TODO: this code, as well as promote and demote, need error checking to ensure
+# that we don't continue on with some action if something earlier failed.
+#############################################################################
+MySQL_replication_start() {
+
+   # If Pacemaker has not yet elected a master node, the CIB will be empty and
+   # there is nothing to do.
+   if [ -z "${OCF_RESKEY_master_host}" ]; then
+      : The CIB is empty, so there is nothing to 'do'
+      set_master_score 1000
+      return $OCF_SUCCESS
+   fi
+
+   : Pacemaker has elected a master, ${OCF_RESKEY_master_host}.
+   # This host might be the master, but not yet promoted in replication.
+   # This can happen after a restart, for example.  We should not attempt to
+   # start replication in that case.
+   if [ "${OCF_RESKEY_master_host}" = "${THIS_IP}" ]; then
+      : This host ${THIS_IP} is the master stored in the CIB.
+      set_master_score 1000
+      return $OCF_SUCCESS
+   fi
+
+   # If the master Pacemaker has chosen isn't this server's master, then we
+   # need to CHANGE_MASTER_TO.
+   CURRENT_MASTER=$(get_current_master)
+
+   if [ "${CURRENT_MASTER}" != "${OCF_RESKEY_master_host}" ] ; then
+      : Master host is ${CURRENT_MASTER} but should be ${OCF_RESKEY_master_host}
+      # If we're behind in replication, we can't switch to the new master yet.
+      finish_relay_logs
+      do_mysql "STOP SLAVE"
+
+      # We need to ensure that we are at the same position relative to where the
+      # new master stopped replication when it was promoted, otherwise it is not
+      # safe to switch.
+      if at_new_master_pos ; then
+         change_to_new_master
+      else
+         : We are not at the same position that the new master stopped.  FAIL.
+         # TODO return some failure code.
+      fi
+   else
+      # This node's master is the same as the master in the CIB.  Start
+      # replication if it isn't running already.  This will only be run at
+      # start, which means Pacemaker has tried to start.
+
+      if ! replication_is_running ; then
+         do_mysql "START SLAVE"
+      fi
+
+   fi
+   set_master_score 100
+   return $OCF_SUCCESS
+}
+
+#############################################################################
+# When "stop" is called, we remove the VIP, but we do not stop replication.
+# This effectively takes the resource out of service, but does not cause
+# replication to become delayed, which would make it useless in case we wanted
+# to fail over to it or something.  Also, note that this is called when another
+# node is being promoted, and we don't want to stop replication at some random
+# point and then try to move to the new master; we want to continue replication
+# from the current master, which should soon be fenced away from writes, so we
+# will finish replicating from it and be at a consistent position with it and
+# all of our sibling replicas.
+#############################################################################
+MySQL_replication_stop() {
+   set_reader_vips_score -10000
+   remove_master_score
+   return $OCF_SUCCESS
+}
+
+#############################################################################
+# Notify is used by the slave to reconfigure to the new master.  Only the 
+# Post_promote event is trapped
+#############################################################################
+MySQL_replication_notify() {
+
+   local type_op
+   type_op="${OCF_RESKEY_CRM_meta_notify_type}-${OCF_RESKEY_CRM_meta_notify_operation}"
+   
+   : Received notfication $type_op
+
+   # Use case here for future use of other notifications
+   case "$type_op" in
+      'post-promote')
+         if [ $OCF_RESKEY_CRM_meta_notify_promote_uname = `uname -n` ]; then
+            : This node is the chosen master
+            ocf_log info "Ignoring post-promote notification for my own promotion."
+         else
+            # Calling start will reconfigure the slave
+            MySQL_replication_start
+         fi
+         return $OCF_SUCCESS
+         ;;
+   
+      *)
+         return $OCF_SUCCESS
+         ;;
+   esac
+}
+
+
+#############################################################################
+# TODO: Placeholder if we ever need to user Pacemaker validation feature
+#############################################################################
+MySQL_replication_validate_all() {
+   :
+   return $OCF_ERR_UNIMPLEMENTED
+}
+
+#############################################################################
+# This code is called on the node that Pacemaker has elected to be the new
+# master.
+   # TODO: this comment was in the original source: "An ordering constraint will
+   # likely work here".  What does that mean?
+# TODO: only permit one failover before a human has to reset the cluster.
+#############################################################################
+MySQL_replication_promote() {
+   # First, stop the replication resource on the other nodes by setting their
+   # affinity to a large negative number.
+   # TODO: is this really necessary?  Why not let reads continue on the other
+   # nodes while we promote this one?  Or can we do this *after* we execute
+   # finish_relay_logs below, at least?
+   #for node in $(get_node_list | grep -v "$(uname -n)"); do
+   #   set_resource_score ${OCF_RESKEY_ms_replication_resource_name} $node -10000
+   #done
+
+   # Wait until this server is caught up in replication, and then stop it and
+   # make it forget that it was ever a slave.
+   finish_relay_logs
+   do_mysql "STOP SLAVE"
+
+   # Save the position to which we replicated, and our current binlog position,
+   # into the CIB.  The former will be used by other nodes who are about to
+   # change to replicate from the latter.  If they didn't replicate to the same
+   # position, then they can't safely start from our current binlog position.
+   # We set the master_host *last* to avoid race conditions, because it is what
+   # other nodes will be looking for to signal that the CIB contains all
+   # the parameters necessary to switch masters.
+   # This has to happen _before_ RESET SLAVE
+   set_crm_resource_param promoted_coordinates "$(get_exec_pos_on_master)"
+
+   # Disable the slave on the new master
+   do_mysql "CHANGE MASTER TO MASTER_HOST=''"
+   do_mysql "RESET SLAVE"
+
+   # Capture the current replication coordinates of this server.
+   update_data_master_status
+   update_data_slave_status
+
+   # Announce we are the new master
+   set_crm_resource_param master_host          "${THIS_IP}"
+   set_crm_resource_param master_log_file      "$(get_master_status File)"
+   set_crm_resource_param master_log_pos       "$(get_master_status Position)"
+
+   # Sleep 1 second out of paranoia here to let the CIB propagate. TODO: test
+   # without this.
+   sleep 1
+
+   # Restart the replication resource on the other nodes.  This will cause
+   # Pacemaker to execute "start" on them, which will make them notice that the
+   # master in the CIB has changed, so they will configure themselves as
+   # replicas of the current node.
+   #update_data_crm
+   #for node in $(get_node_list | grep -v "$(uname -n)"); do
+   #   set_resource_score ${OCF_RESKEY_ms_replication_resource_name} $node 0
+   #done
+
+   # Turn off read_only to permit writes on the current node.
+   do_mysql "SET GLOBAL read_only = 0"
+
+   # Re-enable the reader VIP.  The master has a slightly higher score: 1 instead of 0.
+   # There is no need to care about the writer VIP.  Pacemaker will handle it.
+   set_reader_vips_score 1
+   set_master_score 1000
+   crm resource start writer_vip  #addition, TODO verify if needed
+   return $OCF_SUCCESS
+}
+
+#############################################################################
+# This code runs after Pacemaker removes the writer VIP because of the order
+# constraint.  We set read_only and kill non-binlog-dump connections.
+# TODO: check that no long-running queries are still running after kill?
+# TODO: add a timeout before kill?
+# TODO: Prevent connection with iptables?
+#############################################################################
+MySQL_replication_demote() {
+
+   crm resource stop writer_vip  #addition, TODO verify if needed
+   if ! do_mysql "SET GLOBAL read_only = 1"; then
+      return $OCF_ERR_GENERIC; # This should trigger a STONITH
+   fi
+   update_data_process_list
+   for thread in $(get_user_threads); do
+      # TODO: Yves's code has a check for return value here, and a "return
+      # $OCF_ERR_GENERIC" if it's 1, but it'll be 1 if the thread has gone away
+      # since we saw it, so I think that should only be done if there is a
+      # failure to connect.
+      do_mysql "KILL ${thread}"
+   done
+   return $OCF_SUCCESS
+}
+
+#############################################################################
+# This code runs when Pacemaker wants to check the health of the MySQL resource,
+# including replication health.  The result will depend on whether the node is a
+# master or replica.  This code not only reports the status to Pacemaker, it
+# also has side effects: it sets scores to influence VIPs, based on status.
+#############################################################################
+   MySQL_replication_monitor() {
+   local result query error
+
+   # Execute the test query to see if MySQL is healthy.
+   query="SELECT 1"
+   if [ "${OCF_RESKEY_test_table}" ]; then
+      : There is a table, ${OCF_RESKEY_test_table}, to test.
+      query="SELECT 1 FROM ${OCF_RESKEY_test_table} LIMIT 1"
+   fi
+   result=$(do_mysql "${query}")
+
+   # We ignore error 1040, too many connections.  It is not a reason to
+   # failover.
+   error=$(get_mysql_errno)
+
+   # I'm a master node.
+   # This block of code must 'return' to exit this function in all code paths.
+   if [ "$(get_crm_resource_param master_host)" = "${THIS_IP}" ]; then
+      : This host ${THIS_IP} is the master stored in the CIB.
+      if [ "$error" = "1040" ]; then
+         : Max connections has been reached on the MySQL server, ok to guess it is the master
+         return $OCF_RUNNING_MASTER  #8
+      fi
+
+      # We could be the master in CIB but not be running as master
+      # In that case, mysql will be in read_only mode
+      read_only=$(do_mysql "show global variables like 'read_only';" | awk '{print $2}')
+      error=$(get_mysql_errno)
+      if [ "$error" = "1040" ]; then
+         : Max connections has been reached on the MySQL server, ok to guess it is the master
+         return $OCF_RUNNING_MASTER  #8
+      else
+         if [ "$read_only" = "ON" ] ; then
+            : Host is declared as master in CIB but is read only, not promoted yet
+            # $OCF_SUCCESS will indicate the resource is running and available 
+            # for promotion
+            if [ $OCF_RESKEY_CRM_meta_interval = 0 ]; then
+               # Restore the master setting during probes
+               return $OCF_NOT_RUNNING #7
+            fi
+            return $OCF_SUCCESS  
+         fi
+      fi
+
+      if [ "$result" = "1" ] ; then
+         update_heartbeat_table
+         set_reader_vips_score 0
+      else
+         # We didn't get 1 from the test query, so something must be wrong with
+         # the master.
+         set_reader_vips_score -10000
+         remove_master_score
+         return $OCF_NOT_RUNNING #7
+      fi
+      return $OCF_RUNNING_MASTER  #8
+   fi
+
+   # If there was a skippable error running the sanity check query, then we
+   # don't want to even waste time checking other things...
+   if [ "$error" = "1040" ]; then
+      return $OCF_SUCCESS
+   fi
+
+   # If I'm a replica, then I need to be healthy and not delayed in replication.
+   # TODO: I (Baron) do not understand some of the reasons for setting the
+   # master and reader_vips scores below.  What is the reason for each of them?
+
+   if [ "$(get_current_master)" -a "$(get_current_master)" == "$(get_crm_resource_param master_host)" ]; then
+      if replication_is_running ; then
+         # Check for replication delay.
+         delay=$(get_replication_delay)
+         if [ "${delay:-0}" -gt "${OCF_RESKEY_allowed_sbm}" ]; then
+            : Replication is lagging $delay seconds behind the master.
+            if [ ! -f "${OCF_RESKEY_recover_file}" ]; then
+               : Replication is newly lagging, take action to remove the VIP.
+               set_reader_vips_score -100
+               set_master_score 0
+            fi
+
+            # Regardless of whether replication is newly lagging or has been
+            # delayed for a while, we don't want to add the VIP back to this
+            # node for at least OCF_RESKEY_recover_seconds amount of time.
+            set_replication_delay_timeout $(date +%s) \
+               ${OCF_RESKEY_recover_seconds} "${OCF_RESKEY_recover_file}"
+
+         elif [ -e "${OCF_RESKEY_recover_file}" ]; then
+            # Replication is not lagging, but it was recently.
+            if replication_delay_timeout_expired $(date +%s) "${OCF_RESKEY_recover_file}"; then
+               # If replication was lagging, but it's not anymore, and the timeout
+               # is expired, then we can add a reader VIP back to this node.
+               : Replication delay is $delay, and the timeout expired.
+               set_reader_vips_score 0
+               set_master_score 1000
+            else
+               : Replication delay is $delay, and the timeout did not expire.
+               # TODO: why do we change the master's score here?
+               set_master_score 100
+            fi
+         else
+            : Replication is not lagging and was not lagging recently.
+            set_reader_vips_score 0
+         fi
+         return $OCF_SUCCESS
+
+      else # End of replication_is_running block
+         : Replication is not running
+         set_reader_vips_score -10000
+         remove_master_score
+         return $OCF_NOT_RUNNING
+      fi
+   else
+     : This host is supposed to be a slave but Master_host is not configured
+     if [ $OCF_RESKEY_CRM_meta_interval = 0 ]; then
+          return $OCF_NOT_RUNNING #7
+     fi
+     return $OCF_SUCCESS
+   fi # End of master is configured and if here, I am supposed to be a slave
+
+   return $OCF_SUCCESS
+}
+
+#############################################################################
+# This is the main function, which is called when this program is executed
+# (it is not called when the program is sourced with ".").  This code relies on
+# some environment variables being set, which is how the cluster manager passes
+# arguments:
+#
+#  WORKDIR
+#     A directory, that will store some temporary files. The script will create
+#     and remove this directory on exit. The directory may contain the
+#     following files:
+#     * mysql-vars         SHOW GLOBAL VARIABLES from MySQL
+#     * master-status      SHOW MASTER STATUS from MySQL
+#     * slave-status       SHOW SLAVE STATUS from MySQL
+#     * processlist        SHOW PROCESSLIST from MySQL
+#     * node-list          Result of "crm node list" command
+#     * resource-list      Result of "crm resource list" command
+#     * mysql-stderr       The STDERR of the last do_mysql command
+#  DEBUG_LOG
+#     If set, this is the pathname to a debug log file, which must exist.
+#  $__OCF_ACTION
+#     From the documentation, "The currently invoked action.  This is exactly
+#     the first command-line argument that the cluster manager specifies when it
+#     invokes the resource agent."
+#  OCF_RESKEY_allowed_sbm
+#     Seconds behind master in replication.  If a replica lags more than this
+#     far behind, the VIP should be removed from it.
+#  OCF_RESKEY_crm_feature_set
+#     The version number of the CRM.
+#  OCF_RESKEY_master_host
+#     The IP address that the cluster has chosen to be the master database.
+#  OCF_RESKEY_master_log_file, OCF_RESKEY_master_log_pos
+#     The replication binlog and position of the master database.
+#  OCF_RESKEY_promoted_coordinates
+#     The position, relative to the old master, to which the current master had
+#     replicated when it promoted itself.  This is used for replication sanity
+#     checks to ensure other servers can safely switch to the coordinates given
+#     by OCF_RESKEY_master_log_file and OCF_RESKEY_master_log_pos. TODO: 
+#     Do we need to add this into the initialization file?
+#  OCF_RESKEY_ms_replication_resource_name
+#     TODO
+#  OCF_RESKEY_p_replication_resource_name
+#     TODO
+#  OCF_RESKEY_reader_vip_prefix
+#     TODO
+#  OCF_RESKEY_recover_cycles
+#     How many check cycles before adding a VIP back to a lagging replica.  See
+#     the description of OCF_RESKEY_recover_file.  TODO: deprecate this in favor
+#     of OCF_RESKEY_recover_seconds.
+#  OCF_RESKEY_recover_seconds
+#     How long to wait before adding a VIP back to a lagging replica.  See
+#     the description of OCF_RESKEY_recover_file.
+#     TODO: do we need to add this into the initialization file?
+#  OCF_RESKEY_recover_file
+#     The name of a file that holds how many check cycles are left until we will
+#     consider re-enabling a replica that was lagging previously but is now
+#     caught up to the master.  We do not move virtual IP addresses back to
+#     lagging replicas immediately.  This avoids flapping.
+#  OCF_RESKEY_repl_db_user, OCF_RESKEY_repl_db_password
+#     The MySQL username and password used for replication.
+#  OCF_RESKEY_super_db_user, OCF_RESKEY_super_db_password
+#     The MySQL username and password we'll use to connect and manipulate MySQL
+#     (change replication, set readonly, etc).
+#  OCF_RESKEY_test_table
+#     A table from which we should SELECT 1 LIMIT 1 to test whether the table is
+#     okay and the server is really serving traffic. TODO implement this and
+#     put it into the initialization file.
+#############################################################################
+
+main() {
+
+   if [ $# != 1 ]; then
+      MySQL_replication_usage
+      exit $OCF_ERR_ARGS
+   fi
+
+   # Determine what to do with $__OCF_ACTION.  These first two actions should
+   # send their output to stdout/stderr, even if DEBUG_LOG is set, so they are
+   # in a separate case statement.
+   case $__OCF_ACTION in
+   meta-data)
+      meta_data
+      exit $OCF_SUCCESS
+      ;;
+   usage)
+      MySQL_replication_usage
+      exit $OCF_SUCCESS
+      ;;
+   esac
+
+   # creates the WORKDIR for this instance
+   export WORKDIR="$(mktemp -d "${HA_RSCTMP}/${OCF_RESOURCE_TYPE}.XXXXXXX")"
+   
+   # will remove WORKDIR on EXIT
+   #trap "rc=$?;rm -rf '${WORKDIR}';exit $rc" EXIT
+
+   ##########################################################################
+   # If DEBUG_LOG is set, make this resource agent easy to debug: set up the
+   # debug log and direct all output to it.  Otherwise, redirect to /dev/null.
+   # The log directory must be a directory owned by root, with permissions 0700,
+   # and the log must be writable and not a symlink.
+   #
+   # TODO: I don't understand the need to make these specific checks:
+   # set -- $(command ls -ldn "$1" 2>/dev/null);
+   # [[ $1/$3 = drwx?-??-?/0 ]]
+   ##########################################################################
+   if [ "${DEBUG_LOG}" -a -w "${DEBUG_LOG}" -a ! -L "${DEBUG_LOG}" ]; then
+      DEBUG_LOG_DIR="${DEBUG_LOG%/*}"
+      if [ -d "${DEBUG_LOG_DIR}" ]; then
+         exec 9>>"$DEBUG_LOG"
+         exec 2>&9
+         date >&9
+         echo "$*" >&9
+         env | grep OCF_ | sort >&9
+         set -x
+      else
+         exec 9>/dev/null
+      fi
+   fi
+
+   # If 'mysql' is not in your PATH, you can set it here explicitly.
+   export MYSQL=mysql
+   check_binary $MYSQL
+
+   if ! version_at_least "${OCF_RESKEY_crm_feature_set}" "3.0.0" ; then
+      ocf_log warn "$0 requires Pacemaker 1.0 or newer."
+   fi
+
+   ##########################################################################
+   # Set up some data and perform some sanity checks.
+   ##########################################################################
+   update_data_mysql_vars
+   update_data_slave_status
+   update_data_crm
+
+   if [ "$(get_mysql_variable log_slave_updates)" != "OFF" ]; then
+      ocf_log warn "$0 requires log_slave_updates = 0"
+   fi
+
+   if [ "$(get_mysql_variable slave_net_timeout)" -gt "60" ]; then
+      ocf_log warn "$0 will be more reliable with a low slave_net_timeout"
+   fi
+
+   ##########################################################################
+   # Set up some global variables that the functions will need.
+   ##########################################################################
+   export THIS_IP=$(get_local_ip)
+
+   ##########################################################################
+   # Now dispatch the flow of control to functions to finish the work.
+   ##########################################################################
+   case $__OCF_ACTION in
+   start)
+      MySQL_replication_start
+      ;;
+   stop)
+      MySQL_replication_stop
+      ;;
+   monitor)
+      MySQL_replication_monitor
+      ;;
+   status)
+      # historical (deprecated) synonym for monitor.
+      # http://www.linux-ha.org/doc/dev-guides/_actions.html
+      MySQL_replication_monitor
+      ;;
+   promote)
+      MySQL_replication_promote
+      ;;
+   demote)
+      MySQL_replication_demote
+      ;;
+   notify)
+      MySQL_replication_notify
+      ;;
+   validate-all)
+      MySQL_replication_validate_all
+      ;;
+   *)
+      MySQL_replication_usage
+      exit $OCF_ERR_UNIMPLEMENTED
+   esac
+}
+
+#############################################################################
+# Execute the program if it was not sourced from another file.  This makes it
+# possible to source without executing, which makes it testable.
+#############################################################################
+
+if [ "$(basename "$0")" = "MySQL_replication" ] || [ "$(basename "$0")" = "bash" -a "$_" = "$0" ]; then
+   # Uncomment this line to enable debugging.
+   export DEBUG_LOG="/tmp/replication.ocf.ra.debug/log"
+
+   : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/resource.d/heartbeat}
+   . ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
+
+   main "$@"
+
+   rc=$?
+   rm -rf "${WORKDIR}"
+   exit $rc
+fi

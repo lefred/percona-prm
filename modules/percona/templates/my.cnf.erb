@@ -1,0 +1,12 @@
+[mysqld]
+datadir=/var/lib/mysql
+user=mysql
+log_error=<%= hostname %>-error.log
+binlog_format=MIXED
+<% if has_variable?("perconaserverid") then %>server-id=<%= perconaserverid %> <% end %>
+innodb_log_file_size=64M
+log_slave_updates=1
+log-bin=mysql-bin
+
+[mysql]
+prompt="<%= hostname %> mysql> "
