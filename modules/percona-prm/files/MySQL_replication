@@ -33,8 +33,11 @@
 #############################################################################
 # Initialization:
 
-: ${OCF_FUNCTIONS_DIR}=${OCF_ROOT}/resource.d/heartbeat
-. ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
+: ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
+. ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+
+#: ${OCF_FUNCTIONS_DIR}=${OCF_ROOT}/resource.d/heartbeat
+#. ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
 
 #############################################################################
 # Returns the meta-data.
@@ -1188,8 +1191,10 @@ if [ "$(basename "$0")" = "MySQL_replication" ] || [ "$(basename "$0")" = "bash"
    # Uncomment this line to enable debugging.
    export DEBUG_LOG="/tmp/replication.ocf.ra.debug/log"
 
-   : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/resource.d/heartbeat}
-   . ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
+   : ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/lib/heartbeat}
+   . ${OCF_FUNCTIONS_DIR}/ocf-shellfuncs
+   #: ${OCF_FUNCTIONS_DIR=${OCF_ROOT}/resource.d/heartbeat}
+   #. ${OCF_FUNCTIONS_DIR}/.ocf-shellfuncs
 
    main "$@"
 
