@@ -28,6 +28,14 @@ class percona::packages {
 			require => [ Package['mysql-libs'], Package['MySQL-client'] ],
 			ensure => "installed";
 	}
+
+	exec {
+                "disable-selinux":
+                        path    => ["/usr/bin","/bin"],
+                        command => "echo 0 >/selinux/enforce",
+                        unless => "grep 0 /selinux/enforce",
+        }
+
 }
 
 class percona::service ($ensure="running") {

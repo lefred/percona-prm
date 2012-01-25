@@ -8,6 +8,7 @@ class percona-prm {
         		group   => "root",
 	}
 
+
     	file {
         	"/usr/lib/ocf/resource.d/percona/mysql":
         		ensure  => present,
