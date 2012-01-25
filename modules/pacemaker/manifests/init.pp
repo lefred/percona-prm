@@ -27,10 +27,11 @@ class pacemaker ( $ringnumber = '0',
         		require => Package["pacemaker"],
     	}
 
-        exec { "restart-cluster":
+
+       	exec { "restart-cluster":
 		refreshonly	=> true,
 		command		=> "/sbin/service pacemaker stop; /sbin/service corosync restart; /sbin/service pacemaker start",
-		require 	=> File["/etc/corosync/corosync.conf"],
+		require 	=> [ File["/etc/corosync/corosync.conf"], Network::If['eth3'] ],
 		subscribe 	=> File["/etc/corosync/corosync.conf"],
 	}
 
@@ -43,7 +44,7 @@ class pacemaker::service {
         		ensure     => "running",
         		hasrestart => true,
         		hasstatus  => true,
-        		require => Package["pacemaker"],
+        		require => [ Package["pacemaker"], Network::If['eth3'] ],
     	}
 
 	service {
@@ -52,7 +53,7 @@ class pacemaker::service {
         		ensure     => "running",
         		hasrestart => true,
         		hasstatus  => true,
-        		require => Package["pacemaker"],
+        		require => Service['corosync'],
     	}
 
 }

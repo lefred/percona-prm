@@ -34,8 +34,7 @@ class percona::service ($ensure="running") {
 
 	service {
 		"mysql":
-			enable  => true,
-                        ensure  => $ensure,
+			enable  => false,
 			require => Package['MySQL-server'],
 	}
 }

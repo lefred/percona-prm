@@ -18,7 +18,7 @@ node percona1 {
 	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
 
 	class {'percona::config': perconaserverid => "1" }
-	class {'percona::service': ensure => "running" }
+	class {'percona::service': ensure => "stopped" }
 	class {'pacemaker': pcmk_ip => $extraipaddr }
 }
 
@@ -44,7 +44,7 @@ node percona2 {
 	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
 
 	class {'percona::config': perconaserverid => "2" }
-	class {'percona::service': ensure => "running" }
+	class {'percona::service': ensure => "stopped" }
 	class {'pacemaker': pcmk_ip => $extraipaddr }
 }
 
@@ -69,6 +69,6 @@ node percona3 {
 	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
 
 	class {'percona::config': perconaserverid => "3" }
-	class {'percona::service': ensure => "running" }
+	class {'percona::service': ensure => "stopped" }
 	class {'pacemaker': pcmk_ip => $extraipaddr }
 }

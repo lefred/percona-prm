@@ -8,4 +8,5 @@ class percona::replication {
                 password => "repl",
 		priv    => [ 'repl_slave_priv', 'repl_client_priv' ], 
         }
+
 }
