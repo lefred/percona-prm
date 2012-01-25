@@ -21,7 +21,7 @@ Available parameters:
 - *$priv*: target privileges, defaults to "all" (values are the fieldnames from mysql.db table).
 
 */
-define mysql::rights($database, $user, $password, $host="localhost", $ensure="present", $priv="all") {
+define mysql::rights($database=undef, $user, $password, $host="localhost", $ensure="present", $priv="all") {
 
   if $mysql_exists == "true" and $ensure == "present" {
     if ! defined(Mysql_user ["${user}@${host}"]) {
@@ -30,10 +30,16 @@ define mysql::rights($database, $user, $password, $host="localhost", $ensure="pr
         #require => File["/root/.my.cnf"],
       }
     }
-
-    mysql_grant { "${user}@${host}/${database}":
-      privileges => $priv,
-      #require => File["/root/.my.cnf"],
+    if $database {
+     mysql_grant { "${user}@${host}/${database}":
+       privileges => $priv,
+       #require => File["/root/.my.cnf"],
+     }
+    }
+    else {
+     mysql_grant {"${user}@${host}":
+       privileges => $priv,
+     }
     }
   }
 
