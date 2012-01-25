@@ -24,6 +24,9 @@ primitive writer_vip ocf:heartbeat:IPaddr2 \
         params ip="192.168.90.99" nic="eth3" \ 
 	meta target-role="Started"
 
+ms ms_MySQL p_mysql \
+        meta master-max="1" master-node-max="1" clone-max="3" clone-node-max="1" notify="true" globally-unique="false" target-role="Master" is-managed="true"
+
 location No-reader-vip-1-loc reader_vip_1 \
         rule $id="No-reader-vip-1-rule" -inf: readerOK eq 0
 location No-reader-vip-2-loc reader_vip_2 \
