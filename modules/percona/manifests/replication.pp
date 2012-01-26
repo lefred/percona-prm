@@ -22,24 +22,25 @@ class percona::replication {
 
 	exec {
 		"addmysqluser1":	
-			command 	=> "/usr/bin/mysql -e \"GRANT REPLICATION SLAVE ON *.* TO 'repl'@'%'; FLUSH PRIVILEGES\"",
-			require		=> Exec['startmysql']
+			command 	=> "/usr/bin/mysql -e \"GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'%' identified by 'repl'; FLUSH PRIVILEGES\"",
+			subscribe	=> Exec['startmysql'],
+			refreshonly	=> true,
 	
 	}
 
 	exec {
 		"addmysqluser2":	
-			command 	=> "/usr/bin/mysql -e \"GRANT REPLICATION SLAVE ON *.* TO 'repl'@'localhost'\"",
-			require		=> Exec['startmysql']
+			command 	=> "/usr/bin/mysql -e \"GRANT REPLICATION SLAVE, REPLICATION CLIENT ON *.* TO 'repl'@'localhost' identified by 'repl'\"",
+			subscribe	=> Exec['startmysql'],
+			refreshonly	=> true,
 	
 	}
 
 	exec {
 		"addmysqluser3":	
-			command 	=> "/usr/bin/mysql -e \"GRANT ALL PRIVILEGES  ON *.* TO 'repl'@'localhost'; FLUSH PRIVILEGES\"",
-			require		=> Exec['addmysqluser2']
-	
-
+			command 	=> "/usr/bin/mysql -e \"GRANT ALL PRIVILEGES  ON *.* TO 'repl'@'localhost' identified by 'repl'; FLUSH PRIVILEGES\"",
+			subscribe	=> Exec['addmysqluser2'],
+			refreshonly	=> true,
 	}
 
 	exec {
@@ -51,6 +52,7 @@ class percona::replication {
 	exec {
 		"stopmysql":
                         command         => "/etc/init.d/mysql stop",
-			require => [ Exec['addmysqluser1'], Exec['addmysqluser3'] ],
+			subscribe       => [ Exec['addmysqluser1'], Exec['addmysqluser3'] ],
+			refreshonly	=> true,
 	}
 }
