@@ -55,7 +55,7 @@ class percona::replication {
 
 	exec {
 		"startmysql":
-                        command         => "/etc/init.d/mysql start",
+                        command         => "/etc/init.d/mysql start >/root/mysql_user",
 			creates		=> "/root/mysql_user",
 	}
 
