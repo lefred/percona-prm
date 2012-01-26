@@ -15,7 +15,7 @@ node percona1 {
 			proto		=> "static",
 	}
 
-	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
+	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['percona::replication'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm']
 
 	class {'percona::config': perconaserverid => "1" }
 	class {'percona::service': ensure => "stopped" }
@@ -41,7 +41,7 @@ node percona2 {
 			proto		=> "static",
 	}
 
-	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
+	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['percona::replication'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm']
 
 	class {'percona::config': perconaserverid => "2" }
 	class {'percona::service': ensure => "stopped" }
@@ -66,7 +66,7 @@ node percona3 {
 			proto		=> "static",
 	}
 
-	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm'] -> Class['percona::replication']
+	Class['percona::repository'] -> Class['percona::packages'] -> Class['percona::config'] -> Class['percona::service'] -> Class['percona::replication'] -> Class['pacemaker'] -> Class['pacemaker::service'] -> Class['percona-prm']
 
 	class {'percona::config': perconaserverid => "3" }
 	class {'percona::service': ensure => "stopped" }
