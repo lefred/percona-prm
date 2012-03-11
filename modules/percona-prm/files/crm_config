@@ -14,14 +14,14 @@ primitive p_mysql ocf:percona:mysql \
 
 
 primitive reader_vip_1 ocf:heartbeat:IPaddr2 \
-        params ip="192.168.90.1" nic="eth3" \
+        params ip="192.168.90.1" nic="eth1" \
         meta target-role="Started"
 primitive reader_vip_2 ocf:heartbeat:IPaddr2 \
-        params ip="192.168.90.2" nic="eth3"
+        params ip="192.168.90.2" nic="eth1"
 primitive reader_vip_3 ocf:heartbeat:IPaddr2 \
-        params ip="192.168.90.3" nic="eth3"
+        params ip="192.168.90.3" nic="eth1"
 primitive writer_vip ocf:heartbeat:IPaddr2 \
-        params ip="192.168.90.99" nic="eth3" \ 
+        params ip="192.168.90.99" nic="eth1" \ 
 	meta target-role="Started"
 
 ms ms_MySQL p_mysql \

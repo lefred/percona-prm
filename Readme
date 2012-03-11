@@ -1,9 +1,7 @@
-!!! This needs vagrant 0.8.x !!!
 
+This Vagrant setup can be used to test Percona Replication Manager for Corosync/Pacemaker
 
-This Vagrant setup can be used to test Percona XtraDB Cluster (Percona Server with Galera)
-
-This is used with Centos 6 x86_64, the base box used has multiple interface, eth3 is the nic used for the galera replication.
+This is used with Centos 6 x86_64, and use a second nic for the galera replication.
 That base box can be retrieved on http://dl.dropbox.com/u/11697684/centos6.box.bz2
 
 
@@ -13,7 +11,7 @@ vagrant up percona1
 vagrant up percona2
 vagrant up percona3
 
-And this is all, you have now 3 servers running Percona XtraDB Cluster !
+And this is all, you have now a cluster of 3 nodes. 
 
 
 Note: SElinux is disabled, there is a selinux policy file included that allows the server to start but the other nodes aren't yet able to sync, I need to investigate...

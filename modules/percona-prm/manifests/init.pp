@@ -33,7 +33,7 @@ class percona-prm {
         	exec { "loadcrmconfig":
 			refreshonly	=> true,
 			command         => "/bin/sleep 25; /usr/sbin/crm configure load replace /root/crm_config >>/tmp/fred 2>&1",
-			require 	=> [ Network::If["eth3"], File["/usr/lib/ocf/resource.d/percona/mysql"] ],
+			require 	=> File["/usr/lib/ocf/resource.d/percona/mysql"],
 			subscribe	=> File['/root/crm_config'],
 		}
 	}
