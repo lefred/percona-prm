@@ -17,15 +17,17 @@ class percona::packages {
 
 	package {
 		"Percona-Server-server-55.$hardwaremodel":
-            		alias => "MySQL-server",
+			alias => "MySQL-server",
+			require => [ Package['Percona-Server-shared-compat'] ],
 			ensure => "installed";
 		"Percona-Server-client-55.$hardwaremodel":
-            		alias => "MySQL-client",
+			alias => "MySQL-client",
 			ensure => "installed";		
-		"mysql-libs":
-			ensure => "absent";		
+		#"mysql-libs":
+			#require => [ Package['Percona-Server-shared-compat'] ], 	
+			#ensure => "absent";	
 		"Percona-Server-shared-compat":
-			require => [ Package['mysql-libs'], Package['MySQL-client'] ],
+			require => [ Package['MySQL-client'] ],
 			ensure => "installed";
 	}
 
