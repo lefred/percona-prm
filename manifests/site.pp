@@ -1,4 +1,6 @@
 node percona1 {
+	include network
+	include puppet
 	include percona::repository
         include percona::packages
         include percona::replication
@@ -14,6 +16,8 @@ node percona1 {
 }
 
 node percona2 {
+	include network
+	include puppet
 	include percona::repository
         include percona::packages
         include percona::replication
@@ -30,6 +34,8 @@ node percona2 {
 }
 
 node percona3 {
+	include network
+	include puppet
 	include percona::repository
         include percona::packages
         include percona::replication
