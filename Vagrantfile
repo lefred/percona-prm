@@ -11,7 +11,7 @@ Vagrant::Config.run do |config|
 	percona1_config.vm.customize ["modifyvm", :id, "--memory", "256"]
 	percona1_config.vm.network :hostonly, "192.168.70.2", :adapter => 2
 	percona1_config.vm.provision :puppet do |percona1_puppet|
-		percona1_puppet.pp_path = "/tmp/vagrant-puppet"
+		percona1_puppet.pp_path = "/vagrant"
 		percona1_puppet.manifests_path = "manifests"
 		percona1_puppet.module_path = "modules"
 		percona1_puppet.manifest_file = "site.pp"
@@ -25,7 +25,7 @@ Vagrant::Config.run do |config|
 	percona2_config.vm.customize ["modifyvm", :id, "--memory", "256"]
 	percona2_config.vm.network :hostonly, "192.168.70.3", :adapter => 2
 	percona2_config.vm.provision :puppet do |percona2_puppet|
-		percona2_puppet.pp_path = "/tmp/vagrant-puppet"
+		percona2_puppet.pp_path = "/vagrant"
 		percona2_puppet.manifests_path = "manifests"
 		percona2_puppet.module_path = "modules"
 		percona2_puppet.manifest_file = "site.pp"
@@ -41,7 +41,7 @@ Vagrant::Config.run do |config|
 	percona3_config.vm.customize ["modifyvm", :id, "--memory", "256"]
 	percona3_config.vm.network :hostonly, "192.168.70.4", :adapter => 2
 	percona3_config.vm.provision :puppet do |percona3_puppet|
-		percona3_puppet.pp_path = "/tmp/vagrant-puppet"
+		percona3_puppet.pp_path = "/vagrant"
 		percona3_puppet.manifests_path = "manifests"
 		percona3_puppet.module_path = "modules"
 		percona3_puppet.manifest_file = "site.pp"
