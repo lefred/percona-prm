@@ -4,11 +4,8 @@ class pacemaker ( $ringnumber = '0',
 		  $mcastport = '5405', 
 		  $pcmk_ip = "0.0.0.0") {
 
-	package {
-		"pacemaker.$hardwaremodel":
-			alias  => "pacemaker",
-			ensure => "installed";
-	}
+	include pacemaker::packages
+	include pacemaker::service
 
 	file {
 		"/etc/corosync/authkey":
@@ -24,7 +21,7 @@ class pacemaker ( $ringnumber = '0',
         	"/etc/corosync/corosync.conf":
         		ensure  => present,
         		content => template("pacemaker/corosync.conf.erb"),
-        		require => Package["pacemaker"],
+        		require => [ File["/etc/corosync/authkey"], Package["pacemaker"] ],
     	}
 
 
@@ -34,26 +31,5 @@ class pacemaker ( $ringnumber = '0',
 		require 	=> File["/etc/corosync/corosync.conf"],
 		subscribe 	=> File["/etc/corosync/corosync.conf"],
 	}
-
-}
-
-class pacemaker::service {
-	service {
-        	"corosync":
-        		enable     => true,
-        		ensure     => "running",
-        		hasrestart => true,
-        		hasstatus  => true,
-        		require => Package["pacemaker"],
-    	}
-
-	service {
-        	"pacemaker":
-        		enable     => true,
-        		ensure     => "running",
-        		hasrestart => true,
-        		hasstatus  => true,
-        		require => Service['corosync'],
-    	}
 
 }

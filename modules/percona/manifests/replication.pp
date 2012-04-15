@@ -47,6 +47,7 @@ class percona::replication {
 		"startmysql":
                         command         => "/etc/init.d/mysql start >/root/mysql_user",
 			creates		=> "/root/mysql_user",
+			require		=> [ Package['MySQL-client'], Package['MySQL-server'] ],
 	}
 
 	exec {

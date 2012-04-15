@@ -1,4 +1,4 @@
-class percona-prm {
+class percona::prm {
 
 	file {
 		"/usr/lib/ocf/resource.d/percona":
@@ -12,7 +12,7 @@ class percona-prm {
     	file {
         	"/usr/lib/ocf/resource.d/percona/mysql":
         		ensure  => present,
-			source  => "puppet:///modules/percona-prm/mysql",
+			source  => "puppet:///modules/percona/prm/mysql",
         		mode    => 0755,
         		owner   => "root",
         		group   => "root",
@@ -23,7 +23,7 @@ class percona-prm {
     		file {
         		"/root/crm_config":
         			ensure  => present,
-				source  => "puppet:///modules/percona-prm/crm_config",
+				source  => "puppet:///modules/percona/prm/crm_config",
         			mode    => 0644,
         			owner   => "root",
         			group   => "root",
